@@ -163,7 +163,7 @@ jobs:
       - name: Manual Validation
         run: echo "Deploy to QA"
   PROD:
-    needs: DEV
+    needs: QA
     environment: 
       name: QA
     runs-on: ubuntu-latest
