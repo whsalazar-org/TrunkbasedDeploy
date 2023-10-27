@@ -135,7 +135,7 @@ jobs:
   ManualApproval:
     needs: MapTest
     environment: 
-      name: DEV
+      name: Validation
     runs-on: ubuntu-latest
     if: ${{ needs.MapTest.outputs.testFlag }} == false
     steps:
@@ -146,10 +146,27 @@ jobs:
           echo "HEAD REF: ${{github.head_ref}}"
           echo "base REF: ${{github.base_ref}}"
 
-DEV:
- needs: ManualApproval
- environment:
-   name: DEV
- runs-on: ubuntu-latest
- steps:
-   run: echo "Deploying to DEV"
+  DEV:
+    needs: ManualApproval
+    environment: 
+      name: Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Manual Validation
+        run: echo "Deploy to Dev"
+  QA:
+    needs: DEV
+    environment: 
+      name: DEV
+    runs-on: ubuntu-latest
+    steps:
+      - name: Manual Validation
+        run: echo "Deploy to QA"
+  PROD:
+    needs: DEV
+    environment: 
+      name: QA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Manual Validation
+        run: echo "Deploy to Prod"
