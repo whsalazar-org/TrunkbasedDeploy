@@ -1,0 +1,147 @@
+name: BCI CI
+ 
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+permissions: read-all
+   
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel1
+jobs:
+
+  MapTest:   
+    outputs:
+      testFlag: ${{ steps.testFlag.outputs.testFlag }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        
+      - name: Get PR File Name
+        id: getprfilename
+        env:
+          REPO_NAME: ${{ github.repository }}
+          P_NUMBER: ${{ github.event.pull_request.number }}
+          TOKEN: ${{ secrets.PAT_TOKEN }}
+        shell: python
+        run: |
+          import base64
+          import json
+          import os
+          import requests
+          REPO_NAME = os.environ["REPO_NAME"]
+          P_NUMBER = os.environ["P_NUMBER"]
+          TOKEN = os.getenv("TOKEN")
+          
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": "Bearer {}".format(TOKEN),
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          response = requests.get(
+              "https://api.github.com/repos/{}/pulls/{}/files".format(REPO_NAME, P_NUMBER),
+              headers=headers,
+          )
+          
+          def set_action_output(output_name, value) :
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f : 
+                print("{0}={1}".format(output_name,value), file=f)
+               #print >> f, "{0}={1}".format(output_name, value)
+               
+          data = response.json()
+          for sca in data:
+              filename = sca['filename']
+              status = sca['status']
+              print('++++++++++++++++++++++++++++++++++')
+              print('NAME: {}'.format(filename))
+              print('STATUS: {}'.format(status))
+              file_basename = os.path.basename(filename)
+              filename_without_ext = os.path.splitext(file_basename)[0]
+              print('printing filename without ext')
+              print(filename_without_ext)
+              set_action_output("file-name",filename_without_ext)
+              
+      - name: Copy File
+        id: copyfiles
+        env:
+          BASEFILE: "KLG_B2BI_GITHUB_TASKS_WORKSHOP"
+        run: |
+          echo "BASEFILE: $BASEFILE"
+          echo "basefile=$BASEFILE" >> $GITHUB_OUTPUT
+          
+      # Create Initparms file
+      - name: CreateInitparms
+        run: |
+          echo ${{ steps.copyfiles.outputs.basefile }}
+          #ssh uskm1u04@usaws3601.us.kellogg.com 'echo "<mapname>${{steps.copyfiles.outputs.basefile}}</mapname>" > /home/uskm1u04/maptest/initparms'
+               
+      # Copy map into APP server
+      - name: Copy Map from Repo to App Server
+        run: |
+          echo ${{ steps.copyfiles.outputs.basefile }}
+          echo $GITHUB_WORKSPACE
+          #scp $GITHUB_WORKSPACE/maps/${{steps.copyfiles.outputs.basefile}}* uskm1u04@usaws3601.us.kellogg.com:/home/uskm1u04/maps
+          #ssh uskm1u04@usaws3601.us.kellogg.com 'cp $GITHUB_WORKSPACE/maps/${{steps.copyfiles.outputs.basefile}}/* /home/uskm1u04/maps
+
+      # Runs shell script to import map into B2Bi Application
+      - name: importMAPs
+        run: echo "Importing Maps"
+        #run: ssh uskm1u04@usaws3601.us.kellogg.com "/gis/apps/si60/install/bin/importMAPs.sh /home/uskm1u04/maps"
+
+      # Runs shell script to launch business process that executes a test on component
+      - name: workflowLauncher'
+        run: echo "Launching Workflow"
+        #run: ssh uskm1u04@usaws3601.us.kellogg.com "/gis/apps/si60/install/bin/workflowLauncher.sh -n KLG_MapTest -f /home/uskm1u04/maptest/initparms"
+
+      # Compare the baseline vs the results from test
+      - name: Output comparison
+        continue-on-error: true
+        run: |
+          echo ${{steps.copyfiles.outputs.basefile}}
+          echo "Comparing baseline file vs the results from test"
+          #ssh uskm1u04@usaws3601.us.kellogg.com "diff /home/uskm1u04/maptest/baseline/${{steps.copyfiles.outputs.basefile}}.baseline /home/uskm1u04/maptest/output/${{steps.copyfiles.outputs.basefile}}.output > /home/uskm1u04/maptest/diffs/${{steps.copyfiles.outputs.basefile}}.diffs"
+
+      # when component.diffs file is zero bytes, test is good
+      # When difference file size is bigger than 0, trigger a manual approval
+      - name: Confirm Test is Good
+        id: testFlag
+        if: always()
+        run: |
+              # Get the size of the file
+              #file_size=$(ssh uskm1u04@usaws3601.us.kellogg.com 'stat -c "%s" /home/uskm1u04/maptest/diffs/${{steps.copyfiles.outputs.basefile}}.diffs')
+              file_size=100
+              echo "Getting the size of the file"
+              # Check if the file size is zero
+              if [[ "$file_size" -eq 0 ]]; then
+                # The file is zero bytes
+                echo "TEST is good, merge"
+                echo "testFlag=true" >> $GITHUB_OUTPUT
+                exit 0
+              else
+                # The file is not zero bytes
+                echo "test did not pass, go to manual validation"
+                echo "if admin approves, then merge, otherwise return to dev1"
+                #echo "There are differences on Github components, check ${{steps.copyfiles.outputs.basefile}}.diffs" | mail -s "this is the subject" "mario.urbina@kellanova.com"
+                echo "testFlag=false" >> $GITHUB_OUTPUT
+              fi
+
+  # Manual Validation for test
+  ManualApproval:
+    needs: MapTest
+    environment: 
+      name: DEV
+    runs-on: ubuntu-latest
+    if: ${{ needs.MapTest.outputs.testFlag }} == false
+    steps:
+      - name: Manual Validation
+        run: |
+          echo "Manual Validation ${{ needs.MapTest.outputs.testFlag }}"
+          echo "REF: ${{github.ref}}"
+          echo "HEAD REF: ${{github.head_ref}}"
+          echo "base REF: ${{github.base_ref}}"
