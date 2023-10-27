@@ -145,3 +145,11 @@ jobs:
           echo "REF: ${{github.ref}}"
           echo "HEAD REF: ${{github.head_ref}}"
           echo "base REF: ${{github.base_ref}}"
+
+DEV:
+ needs: ManualApproval
+ environment:
+   name: DEV
+ runs-on: ubuntu-latest
+ steps:
+   run: echo "Deploying to DEV"
